@@ -402,6 +402,16 @@ def analyze(args):
         summary["timing"]["report_info_counts"] = {SENSOR_NAMES.get(int(i), hex(i)): int(c) for i, c in zip(ids, counts)}
         md += ["", "Reports seen on `/bno08x/report_info`: " +
                ", ".join(f"{SENSOR_NAMES.get(int(i), hex(i))} {c}" for i, c in zip(ids, counts))]
+        # Accuracy status per report: the firmware's own confidence in its calibration.
+        md += ["", "| Report | Unreliable | Low | Medium | High | Last |", "|---|---|---|---|---|---|"]
+        acc_tab = {}
+        for i in ids:
+            sel = ri["accuracy"][ri["sensor_id"] == i]
+            c = np.bincount(sel, minlength=4)[:4]
+            acc_tab[SENSOR_NAMES.get(int(i), hex(i))] = {"counts": c.tolist(), "last": int(sel[-1])}
+            md.append(f"| {SENSOR_NAMES.get(int(i), hex(i))} | " + " | ".join(str(int(x)) for x in c) +
+                      f" | {['unreliable', 'low', 'medium', 'high'][min(int(sel[-1]), 3)]} |")
+        summary["timing"]["accuracy_by_report"] = acc_tab
     md += ["", "Dropped = reports missing from the SH-2 sequence numbers (and from time gaps longer than 128 samples). "
                "Latency = host processing time minus the sh2 library's sample time. "
                "Clock drift = how fast the sensor's clock runs against the Pi's.", ""]
@@ -471,6 +481,13 @@ def analyze(args):
         md += [""] + [f"- {axn}: {f[k]}" for axn, f in fits_u.items() for k in ("N_note", "B_note", "K_note") if k in f]
         md += ["", "![](allan_gyro_uncal.png)", ""]
 
+        # Absolute bias: the mean of the uncalibrated rate while still (Earth rate, 0.004 deg/s, ignored).
+        mean_b = wu.mean(axis=0) * RAD2DEG
+        summary["gyro"]["mean_uncal_rate_deg_s"] = mean_b.tolist()
+        md += [f"Mean uncalibrated rate while still (the gyro's bias before firmware correction): "
+               f"{np.round(mean_b, 4).tolist()} deg/s. Left uncorrected, the z value alone turns the heading by "
+               f"{abs(mean_b[2]) * 60:.2f} deg per minute.", ""]
+
         # Firmware bias estimate over time
         a = data[TOPIC_GYRO_UNCAL]
         t = stamps_s(a)
@@ -493,23 +510,42 @@ def analyze(args):
             # 1/512 rad/s for uncalibrated), white with variance LSB^2/12 per sample, which adds
             # LSB^2/(12 m) to the Allan variance at tau = m*tau0. That is removed before the ratio.
             q_u = 1.0 / 512.0
-            ratios = []
-            for axn in axes:
-                tu, au = fits_all[f"gyro_uncal_{axn}"]
-                tc, ac = fits_all[f"gyro_raw_{axn}"]
-                n_ = min(len(tu), len(tc))
-                m = tu[:n_] / dt0
-                vu = au[:n_] ** 2 - q_u ** 2 / (12.0 * m)
-                vc = ac[:n_] ** 2 - 1.0 / (12.0 * m)
-                sel = (tu[:n_] >= 1.0) & (tu[:n_] <= 100.0) & (vu > 0) & (vc > 0)
-                if np.any(sel):
-                    ratios.append(float(np.median(np.sqrt(vu[sel] / vc[sel]))))
-            if ratios:
+            # The raw report is in the gyro chip's own axes, which can be permuted relative to the
+            # output axes of the uncalibrated report, so compare every pair and pick the axis
+            # matching whose three scales agree best.
+            import itertools
+            r = np.full((3, 3), np.nan)
+            for i, au_n in enumerate(axes):
+                tu, au = fits_all[f"gyro_uncal_{au_n}"]
+                for j, ac_n in enumerate(axes):
+                    tc, ac = fits_all[f"gyro_raw_{ac_n}"]
+                    n_ = min(len(tu), len(tc))
+                    m = tu[:n_] / dt0
+                    vu = au[:n_] ** 2 - q_u ** 2 / (12.0 * m)
+                    vc = ac[:n_] ** 2 - 1.0 / (12.0 * m)
+                    sel = (tu[:n_] >= 1.0) & (tu[:n_] <= 100.0) & (vu > 0) & (vc > 0)
+                    if np.any(sel):
+                        r[i, j] = float(np.median(np.sqrt(vu[sel] / vc[sel])))
+            best = None
+            for perm in itertools.permutations(range(3)):
+                ratios = [r[i, perm[i]] for i in range(3)]
+                if np.all(np.isfinite(ratios)):
+                    spread = (max(ratios) - min(ratios)) / np.median(ratios)
+                    if best is None or spread < best[0]:
+                        best = (spread, perm, ratios)
+            ident = [r[i, i] for i in range(3)]
+            if np.all(np.isfinite(ident)):
+                s_id = (max(ident) - min(ident)) / np.median(ident)
+                if s_id < 0.15:  # axes already agree: keep them, noise alone can't tell equal axes apart
+                    best = (s_id, (0, 1, 2), ident)
+            if best:
+                spread, perm, ratios = best
                 gyro_scale = float(np.median(ratios))
-                spread = float((max(ratios) - min(ratios)) / gyro_scale * 100)
+                mapping = ", ".join(f"uncal {axes[i]} = raw {axes[perm[i]]}" for i in range(3))
+                summary["gyro"]["raw_to_uncal_axis_map"] = mapping
                 scale_source = (f"estimated from the Allan curves (uncalibrated / raw, tau 1-100 s, "
-                                f"rounding noise removed); "
-                                f"per-axis {', '.join(fmt(r) for r in ratios)}, spread {spread:.1f}%")
+                                f"rounding noise removed); axes matched as {mapping}; "
+                                f"per-axis {', '.join(fmt(x) for x in ratios)}, spread {spread * 100:.1f}%")
         if gyro_scale:
             summary["gyro"]["raw_scale_rad_s_per_count"] = gyro_scale
             summary["gyro"]["raw_scale_source"] = scale_source
