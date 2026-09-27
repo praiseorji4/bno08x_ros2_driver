@@ -1,6 +1,11 @@
 # Characterization mode: publishes every useful SH-2 report with sample-time stamps,
 # sequence numbers and accuracy, for recording with `ros2 bag record`.
 # The standard /imu and /magnetic_field topics are still published.
+#
+# Bus load: with everything below at 100 Hz the sensor sends about 16 kB/s. A Raspberry Pi
+# I2C bus at its default 100 kHz carries only about 9-10 kB/s, so reports get dropped
+# (raw gyro measured at ~60 Hz). Use 400 kHz I2C, or a leaner profile such as
+# bno085_i2c_allan.yaml.
 bno08x_driver:
   ros__parameters:
 

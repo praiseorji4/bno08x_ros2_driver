@@ -1,0 +1,32 @@
+# Lean profile for long static recordings (Allan variance, bias stability).
+# Only the raw accelerometer and gyroscope plus report metadata, so a 100 kHz I2C bus
+# can keep up at 100 Hz. The standard /imu and /magnetic_field outputs are off.
+bno08x_driver:
+  ros__parameters:
+
+    frame_id: "imu_link"
+
+    i2c:
+      enabled: true
+      bus: "/dev/i2c-1"
+      address: "0x4A"
+
+    timestamp:
+      use_sample_time: true
+
+    poll:
+      rate_multiplier: 4
+
+    publish:
+      imu:
+        enabled: false
+      magnetic_field:
+        enabled: false
+      report_info:
+        enabled: true
+      raw:
+        enabled: true
+        rate: 100
+      gyroscope_uncalibrated:
+        enabled: true   # SH-2 bias estimate, to compare with our own
+        rate: 100
