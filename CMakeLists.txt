@@ -23,8 +23,9 @@ find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 
-# The interface target needs its own name because the executable is called ${PROJECT_NAME}
-rosidl_generate_interfaces(${PROJECT_NAME}_interfaces
+# The interface target must be named after the package so ROS can load its typesupport at
+# runtime, so the executable target below is named bno08x_driver_node instead.
+rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/ReportInfo.msg"
   "msg/Report.msg"
   "msg/RawSensor.msg"
@@ -34,7 +35,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}_interfaces
   "msg/StabilityClassification.msg"
   DEPENDENCIES std_msgs geometry_msgs
 )
-rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME}_interfaces "rosidl_typesupport_cpp")
+rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} "rosidl_typesupport_cpp")
 
 # Add include directories for main driver
 include_directories(
@@ -51,25 +52,27 @@ set(SOURCES
 )
 
 # Create executable for the driver
-add_executable(bno08x_driver ${SOURCES})
+add_executable(bno08x_driver_node ${SOURCES})
+# Keep the installed executable name, so launch files still use executable='bno08x_driver'
+set_target_properties(bno08x_driver_node PROPERTIES OUTPUT_NAME bno08x_driver)
 
 # Link include directories to the target
-target_include_directories(bno08x_driver PUBLIC
+target_include_directories(bno08x_driver_node PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
 
 # Set the required C and C++ standards
-target_compile_features(bno08x_driver PUBLIC cxx_std_17)
+target_compile_features(bno08x_driver_node PUBLIC cxx_std_17)
 
 # Link against sh2 library
-target_link_libraries(bno08x_driver
+target_link_libraries(bno08x_driver_node
   sh2_library
   "${cpp_typesupport_target}"
 )
 
 ament_target_dependencies(
-  bno08x_driver
+  bno08x_driver_node
   "rclcpp"
   "sensor_msgs"
   "std_msgs"
@@ -77,7 +80,7 @@ ament_target_dependencies(
 )
 
 # Install the executable and the config files
-install(TARGETS bno08x_driver
+install(TARGETS bno08x_driver_node
   DESTINATION lib/${PROJECT_NAME})
 
 install(DIRECTORY config

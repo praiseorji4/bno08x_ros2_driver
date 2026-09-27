@@ -1,7 +1,8 @@
 # sh2/CMakeLists.txt
 
-# Create a library from the sh2 sources
-add_library(sh2_library
+# Create a library from the sh2 sources. Always static: generating ROS messages turns on
+# BUILD_SHARED_LIBS, and a shared sh2_library would not be installed next to the node.
+add_library(sh2_library STATIC
   sh2.c
   sh2_SensorValue.c
   sh2_util.c
@@ -15,3 +16,4 @@ target_include_directories(sh2_library PUBLIC
 
 # If any specific compile features or options are needed for the sh2 library
 target_compile_features(sh2_library PUBLIC c_std_99)
+set_target_properties(sh2_library PROPERTIES POSITION_INDEPENDENT_CODE ON)
