@@ -526,22 +526,43 @@ def analyze(args):
                     sel = (tu[:n_] >= 1.0) & (tu[:n_] <= 100.0) & (vu > 0) & (vc > 0)
                     if np.any(sel):
                         r[i, j] = float(np.median(np.sqrt(vu[sel] / vc[sel])))
+            # Pick the axis pairing from the data itself: both reports come from the same gyro
+            # samples, so their 1 s means move together on matching axes. (Comparing noise levels
+            # alone can't separate two axes that happen to be equally noisy.)
+            blk = max(int(round(1.0 / dt0)), 1)
+            n_blk = min(len(wu), len(gr)) // blk
+            C = np.zeros((3, 3))
+            if n_blk > 10:
+                bu = wu[: n_blk * blk].reshape(n_blk, blk, 3).mean(axis=1)
+                bc = gr[: n_blk * blk].reshape(n_blk, blk, 3).mean(axis=1)
+                for i in range(3):
+                    for j in range(3):
+                        C[i, j] = np.corrcoef(bu[:, i], bc[:, j])[0, 1]
+            summary["gyro"]["raw_uncal_corr_1s"] = C.round(3).tolist()
             best = None
-            for perm in itertools.permutations(range(3)):
-                ratios = [r[i, perm[i]] for i in range(3)]
+            perms = list(itertools.permutations(range(3)))
+            by_corr = max(perms, key=lambda pm: sum(abs(C[i, pm[i]]) for i in range(3)))
+            if min(abs(C[i, by_corr[i]]) for i in range(3)) > 0.3:
+                ratios = [r[i, by_corr[i]] for i in range(3)]
                 if np.all(np.isfinite(ratios)):
-                    spread = (max(ratios) - min(ratios)) / np.median(ratios)
-                    if best is None or spread < best[0]:
-                        best = (spread, perm, ratios)
-            ident = [r[i, i] for i in range(3)]
-            if np.all(np.isfinite(ident)):
-                s_id = (max(ident) - min(ident)) / np.median(ident)
-                if s_id < 0.15:  # axes already agree: keep them, noise alone can't tell equal axes apart
-                    best = (s_id, (0, 1, 2), ident)
+                    best = ((max(ratios) - min(ratios)) / np.median(ratios), by_corr, ratios)
+            if best is None:  # weak correlation: fall back to the pairing whose scales agree best
+                for perm in perms:
+                    ratios = [r[i, perm[i]] for i in range(3)]
+                    if np.all(np.isfinite(ratios)):
+                        spread = (max(ratios) - min(ratios)) / np.median(ratios)
+                        if best is None or spread < best[0]:
+                            best = (spread, perm, ratios)
+                ident = [r[i, i] for i in range(3)]
+                if np.all(np.isfinite(ident)):
+                    s_id = (max(ident) - min(ident)) / np.median(ident)
+                    if s_id < 0.15:
+                        best = (s_id, (0, 1, 2), ident)
             if best:
                 spread, perm, ratios = best
                 gyro_scale = float(np.median(ratios))
-                mapping = ", ".join(f"uncal {axes[i]} = raw {axes[perm[i]]}" for i in range(3))
+                mapping = ", ".join(f"uncal {axes[i]} = {'-' if C[i, perm[i]] < 0 else ''}raw {axes[perm[i]]}"
+                                    for i in range(3))
                 summary["gyro"]["raw_to_uncal_axis_map"] = mapping
                 scale_source = (f"estimated from the Allan curves (uncalibrated / raw, tau 1-100 s, "
                                 f"rounding noise removed); axes matched as {mapping}; "
