@@ -29,6 +29,39 @@ For more information, refer to the [datasheet](./docs/BNO080_085-Datasheet.pdf).
 | i2c.device	|string	|"/dev/i2c-7"	|I2C device path.|
 | i2c.address	|string	|"0x4A"	|I2C address of the BNO08x sensor.|
 
+## Characterization mode
+For sensor characterization and data recording, the driver can publish every useful SH-2 report
+with sample-time stamps, sequence numbers and accuracy. All of this is off by default, so the
+standard `/imu` and `/magnetic_field` outputs are unchanged unless you enable it.
+
+```bash
+ros2 launch bno08x_driver bno085_i2c_characterization.launch.py
+ros2 bag record -s mcap -a
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| timestamp.use_sample_time | bool | false | Stamp messages with the sample time estimated by the sh2 library (host read time minus the sensor-reported delay) instead of the time the driver processed them. |
+| poll.rate_multiplier | int | 1 | Poll the sensor this many times faster than the fastest enabled report. |
+| publish.imu.orientation_source | string | "rotation_vector" | `/imu` orientation from the 9-axis rotation vector or the 6-axis `game_rotation_vector` (no magnetometer). |
+| publish.magnetic_field.tesla | bool | false | Publish `/magnetic_field` in tesla, as `sensor_msgs/MagneticField` specifies. The default keeps the previous microtesla values. |
+| covariance.{orientation,angular_velocity,linear_acceleration,magnetic_field} | double[9] | zeros | Row-major covariances copied into `/imu` and `/magnetic_field`. |
+| publish.report_info.enabled | bool | false | Metadata for every report on `/bno08x/report_info`. |
+| publish.raw.enabled / rate | bool / int | false / 100 | Raw ADC counts on `/bno08x/raw/{accelerometer,gyroscope,magnetometer}` (magnetometer capped at 100 Hz). |
+| publish.gyroscope_uncalibrated.enabled / rate | bool / int | false / 100 | `/bno08x/gyroscope_uncalibrated`, including the SH-2 bias estimate. |
+| publish.magnetic_field_uncalibrated.enabled / rate | bool / int | false / 100 | `/bno08x/magnetic_field_uncalibrated`, including the hard-iron estimate (tesla). |
+| publish.rotation_vector.enabled / rate | bool / int | false / 100 | `/bno08x/rotation_vector`, including the heading accuracy estimate. |
+| publish.game_rotation_vector.enabled / rate | bool / int | false / 100 | `/bno08x/game_rotation_vector`. |
+| publish.gyro_integrated_rotation_vector.enabled / rate | bool / int | false / 100 | `/bno08x/gyro_integrated_rotation_vector`, orientation plus angular velocity. |
+| publish.stability.enabled / rate | bool / int | false / 10 | `/bno08x/stability` classifier (on table, stationary, stable, motion). |
+
+Every characterization message carries a `ReportInfo` with the SH-2 report ID, the per-report
+sequence number (gaps mean dropped reports), the accuracy status (0 to 3), the sensor-reported
+delay, and the sample and receive times in the host clock. The message definitions are in `msg/`.
+
+A report used by several outputs is enabled once at the highest requested rate, so an output can
+receive samples faster than its own `rate`.
+
 ## Installation
 Clone the repository:
 ```bash

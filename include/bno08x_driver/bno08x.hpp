@@ -33,6 +33,16 @@ public:
   bool was_reset(void);
   bool enable_report(sh2_SensorId_t sensor, uint32_t interval_us = 10000);
   void poll(void);
+  static uint32_t host_time_us(void);
+
+  /**
+   * @brief Age of a sample relative to a host time, both in the sh2 host clock domain
+   *
+   * Unsigned 32-bit subtraction handles the ~71 minute wrap of the host counter.
+   */
+  static inline uint32_t sample_age_us(uint32_t host_now_us, uint64_t sample_time_us) {
+    return host_now_us - static_cast<uint32_t>(sample_time_us);
+  }
   sh2_ProductIds_t prodIds; ///< The product IDs returned by the sensor
 
 protected:

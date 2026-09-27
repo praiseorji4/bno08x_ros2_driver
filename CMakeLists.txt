@@ -20,6 +20,21 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
+
+# The interface target needs its own name because the executable is called ${PROJECT_NAME}
+rosidl_generate_interfaces(${PROJECT_NAME}_interfaces
+  "msg/ReportInfo.msg"
+  "msg/Report.msg"
+  "msg/RawSensor.msg"
+  "msg/GyroUncalibrated.msg"
+  "msg/MagneticFieldUncalibrated.msg"
+  "msg/Orientation.msg"
+  "msg/StabilityClassification.msg"
+  DEPENDENCIES std_msgs geometry_msgs
+)
+rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME}_interfaces "rosidl_typesupport_cpp")
 
 # Add include directories for main driver
 include_directories(
@@ -50,6 +65,7 @@ target_compile_features(bno08x_driver PUBLIC cxx_std_17)
 # Link against sh2 library
 target_link_libraries(bno08x_driver
   sh2_library
+  "${cpp_typesupport_target}"
 )
 
 ament_target_dependencies(
@@ -57,6 +73,7 @@ ament_target_dependencies(
   "rclcpp"
   "sensor_msgs"
   "std_msgs"
+  "geometry_msgs"
 )
 
 # Install the executable and the config files
@@ -87,9 +104,18 @@ if(BUILD_TESTING)
     )
   endif()
 
+  ament_add_gtest(test_sample_age test/sample_age_test.cpp)
+  if(TARGET test_sample_age)
+    target_include_directories(test_sample_age PUBLIC
+      $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    )
+    target_link_libraries(test_sample_age sh2_library)
+  endif()
+
   # Linter checks
   # find_package(ament_lint_auto REQUIRED)
   # ament_lint_auto_find_test_dependencies()
 endif()
 
+ament_export_dependencies(rosidl_default_runtime)
 ament_package()

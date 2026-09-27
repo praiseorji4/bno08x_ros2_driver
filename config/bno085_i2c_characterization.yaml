@@ -1,0 +1,68 @@
+# Characterization mode: publishes every useful SH-2 report with sample-time stamps,
+# sequence numbers and accuracy, for recording with `ros2 bag record`.
+# The standard /imu and /magnetic_field topics are still published.
+bno08x_driver:
+  ros__parameters:
+
+    frame_id: "bno085"
+
+    i2c:
+      enabled: true
+      bus: "/dev/i2c-1"
+      address: "0x4A"
+
+    # Stamp messages with the sample time estimated from the sensor's reported delay,
+    # instead of the time the driver processed them.
+    timestamp:
+      use_sample_time: true
+
+    # Poll the sensor this many times faster than the fastest enabled report.
+    # Each poll reads one SHTP transfer, so polling at the report rate adds up to
+    # one period of latency and can fall behind when many reports are enabled.
+    poll:
+      rate_multiplier: 4
+
+    # Row-major 3x3 covariances copied into /imu and /magnetic_field.
+    # All zeros means "unknown" in sensor_msgs. Fill these in from the characterization results.
+    covariance:
+      orientation:         [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+      angular_velocity:    [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+      linear_acceleration: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+      magnetic_field:      [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+    publish:
+      imu:
+        enabled: true
+        rate: 100
+        orientation_source: "rotation_vector"  # or "game_rotation_vector" (no magnetometer)
+      magnetic_field:
+        enabled: true
+        rate: 100    # max 100 Hz
+        tesla: true  # sensor_msgs/MagneticField is in tesla; false keeps the old uT values
+
+      # Metadata (report ID, sequence number, accuracy, delay) for every report,
+      # on /bno08x/report_info. Used to detect drops and track accuracy.
+      report_info:
+        enabled: true
+      # Raw ADC counts on /bno08x/raw/{accelerometer,gyroscope,magnetometer}
+      raw:
+        enabled: true
+        rate: 100    # magnetometer capped at 100 Hz
+      gyroscope_uncalibrated:
+        enabled: true
+        rate: 100
+      magnetic_field_uncalibrated:
+        enabled: true
+        rate: 100
+      rotation_vector:
+        enabled: true
+        rate: 100
+      game_rotation_vector:
+        enabled: true
+        rate: 100
+      gyro_integrated_rotation_vector:
+        enabled: false  # high-rate orientation; enable for dedicated runs
+        rate: 400
+      stability:
+        enabled: true
+        rate: 10

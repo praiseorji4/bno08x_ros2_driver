@@ -201,6 +201,15 @@ bool BNO08x::was_reset(void) {
 }
 
 /**
+ * @brief Current host time in the clock domain the sh2 library uses for sample timestamps
+ *
+ * @return uint32_t Host time [us], wraps every ~71 minutes
+ */
+uint32_t BNO08x::host_time_us() {
+  return get_time_us(nullptr);
+}
+
+/**
  * @brief Poll the sensor for new events
  * 
  * This function must be called periodically to get the buffered sensor events
