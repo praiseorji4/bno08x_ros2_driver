@@ -4,7 +4,7 @@
 bno08x_driver:
   ros__parameters:
 
-    frame_id: "bno085"
+    frame_id: "imu_link"  # matches the uni-bot URDF
 
     i2c:
       enabled: true
