@@ -44,9 +44,10 @@ tmux keeps programs running after SSH closes or the laptop sleeps. **Both the dr
 ```
 tmux new -s imu
 source ~/ros2_ws/install/setup.bash
-ros2 launch bno08x_driver bno085_i2c_characterization.launch.py config:=$(ros2 pkg prefix --share bno08x_driver)/config/bno085_i2c_allan.yaml
+mkdir -p ~/imu_data
+ros2 launch bno08x_driver bno085_i2c_characterization.launch.py config:=$(ros2 pkg prefix --share bno08x_driver)/config/bno085_i2c_allan.yaml 2>&1 | tee ~/imu_data/launch_$(date +%Y%m%d_%H%M).log
 ```
-This is window 0. The driver must keep running for the whole recording, because the recorder only saves what the driver publishes.
+This is window 0. `| tee ...log` also saves the driver's messages to a file, so a sensor reset or error during the night can be read afterwards. (The 9-hour run had a 2.6 s outage with no log to explain it.) The driver must keep running for the whole recording, because the recorder only saves what the driver publishes.
 
 ### B3. 60-second check (second tmux window)
 Press **Ctrl-b then c** to open window 1, then:
