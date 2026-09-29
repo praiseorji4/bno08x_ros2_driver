@@ -253,6 +253,8 @@ def timing_report(name, a):
         "dt_min_ms": float(dt.min() * 1e3), "backwards_steps": int(np.sum(dt <= 0)),
         "dropped": missing, "dropped_pct": 100.0 * missing / (missing + n),
         "longest_gap_ms": float(dt.max() * 1e3),
+        "gaps_over_100ms": [{"at_h": float((t[i] - t[0]) / 3600), "ms": float(dt[i] * 1e3)}
+                            for i in np.where(dt > 0.1)[0][:20]],
         "latency_ms_p50": float(np.percentile(lat, 50)), "latency_ms_p99": float(np.percentile(lat, 99)),
         "latency_ms_max": float(lat.max()),
         "accuracy_counts": {k: int(v) for k, v in zip(["unreliable", "low", "medium", "high"], acc)},
@@ -260,8 +262,20 @@ def timing_report(name, a):
     if "sensor_timestamp_us" in a.dtype.names and np.any(a["sensor_timestamp_us"]):
         st = unwrap(a["sensor_timestamp_us"], 32) * 1e-6
         ht = a["sample_time_us"].astype(np.float64) * 1e-6
-        slope = np.polyfit(ht - ht[0], st - st[0], 1)[0]
-        r["sensor_clock_drift_ppm"] = (slope - 1.0) * 1e6
+        # A sensor reset (e.g. by the driver's watchdog) restarts the sensor clock, and a host
+        # clock step (NTP after a network outage) shifts the other side. Split at any step where
+        # the two clocks disagree by more than 0.5 s and fit each piece separately.
+        brk = np.where(np.abs(np.diff(st) - np.diff(ht)) > 0.5)[0] + 1
+        edges = np.concatenate([[0], brk, [len(st)]])
+        slopes, weights = [], []
+        for i0, i1 in zip(edges[:-1], edges[1:]):
+            if i1 - i0 > 1000 and ht[i1 - 1] - ht[i0] > 60:
+                slopes.append(np.polyfit(ht[i0:i1] - ht[i0], st[i0:i1] - st[i0], 1)[0])
+                weights.append(ht[i1 - 1] - ht[i0])
+        if slopes:
+            r["sensor_clock_drift_ppm"] = (float(np.average(slopes, weights=weights)) - 1.0) * 1e6
+        r["clock_discontinuities"] = int(len(brk))
+        r["clock_discontinuity_times_h"] = [float((t[i] - t[0]) / 3600) for i in brk[:20]]
     return r, t, idx
 
 
@@ -383,6 +397,7 @@ def analyze(args):
            "| Topic | Msgs | Hours | Rate Hz | dt median / std / max ms | Dropped | Latency p50 / p99 ms | Accuracy (U/L/M/H) | Clock drift ppm |",
            "|---|---|---|---|---|---|---|---|---|"]
     t_ref = None
+    gap_notes = []
     for topic in TOPICS[:4]:
         if topic not in data:
             continue
@@ -396,6 +411,14 @@ def analyze(args):
                   f"{r['dropped']} ({r['dropped_pct']:.3f}%) | {r['latency_ms_p50']:.2f} / {r['latency_ms_p99']:.2f} | "
                   f"{a['unreliable']}/{a['low']}/{a['medium']}/{a['high']} | "
                   f"{fmt(r.get('sensor_clock_drift_ppm'))} |")
+        for g in r["gaps_over_100ms"]:
+            gap_notes.append(f"- `{topic}`: {g['ms']:.0f} ms gap at {g['at_h']:.2f} h")
+        if r.get("clock_discontinuities"):
+            gap_notes.append(f"- `{topic}`: sensor clock jumped {r['clock_discontinuities']} time(s) relative to the Pi at "
+                             + ", ".join(f"{x:.2f} h" for x in r["clock_discontinuity_times_h"])
+                             + " (sensor reset or Pi clock step); drift is fitted piecewise")
+    if gap_notes:
+        md += ["", "Gaps over 100 ms and clock jumps:"] + gap_notes
     if TOPIC_REPORT_INFO in data:
         ri = data[TOPIC_REPORT_INFO]
         ids, counts = np.unique(ri["sensor_id"], return_counts=True)
